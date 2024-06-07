@@ -7,13 +7,27 @@
   include_role:
     name: geerlingguy.docker
 
-- name: Install Pip
+- name: Install Pip role and vars for pip
   include_role:
     name: geerlingguy.pip
+  vars:
+    pip_install_packages:
+      - docker
+      - botocore
+      - boto3
+      - requests
+    pip_executable: pip3
+    pip_package: python3-pip
+ 
 
 - name: Install pydocker
   pip:
     name: docker
+
+- name: Install golang
+  include_role:
+    name: gantsign.golang
+
 
 - name: Download Mythic
   ansible.builtin.git:
@@ -21,13 +35,34 @@
     dest: "{{ installation_path }}"
     version: "{{ mythic_version }}"
 
+- name: Make Go binaries
+  command: sudo make
+  args:
+    chdir: "{{ installation_path }}"
+
+  
+- name: Check and move file if present
+  stat:
+    path: "{{ installation_path }}/mythic-cli"
+  register: mythic_cli_stat
+
+- name: Move file to /bin/ if it exists
+  command: cp "{{ installation_path }}/mythic-cli" /bin/
+  when: mythic_cli_stat.stat.exists
+
+- name: Continue with other tasks 
+  debug:
+    msg: "File has been moved to /bin/, continuing with other tasks"
+  when: mythic_cli_stat.stat.exists
+
+
 - name: Check for mythic config
   stat:
     path: "{{ installation_path }}/.env"
   register: env_stat
 
 - name: Create mythic config
-  shell: ./mythic-cli config > .env
+  shell: ./mythic-cli config 
   args:
     chdir: "{{ installation_path }}"
   when: not env_stat.stat.exists
@@ -49,14 +84,15 @@
     name: mythic_server
   register: mythic_result
 
-- name: Start Mythic
-  command: ./mythic-cli mythic start
-  args:
-    chdir: "{{ installation_path }}"
-  when: not mythic_result.exists
 
 - name: Install Agents
   include_tasks: install_agents.yml
   vars:
     agent: "{{ item }}"
   loop: "{{ agents }}"
+
+
+- name: Start mythic 
+  command: "./mythic-cli start"
+  args:
+    chdir: "{{ installation_path }}"
